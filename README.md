@@ -1,4 +1,5 @@
-友链：[LINUX DO](https://linux.do/) - 新的理想型社区
+[![友链 LINUX DO](https://img.shields.io/badge/%E5%8F%8B%E9%93%BE-LINUX%20DO-0969da?style=flat-square)](https://linux.do/)
+[![新的理想型社区](https://img.shields.io/badge/%E6%96%B0%E7%9A%84%E7%90%86%E6%83%B3%E5%9E%8B%E7%A4%BE%E5%8C%BA-yes-2ea44f?style=flat-square)](https://linux.do/)
 
 # LX Music Source Gateway
 
@@ -13,6 +14,10 @@ lx-source-gateway.cmd
 ```text
 dist/karpov-lx-source.user.js
 ```
+
+## 效果图
+
+![LX Music Source Gateway 菜单效果图](docs/assets/gateway-menu-preview.svg)
 
 ## 适合谁用
 

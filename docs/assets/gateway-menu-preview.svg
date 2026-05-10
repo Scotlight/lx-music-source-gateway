@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="912" height="720" viewBox="0 0 912 720" role="img" aria-label="LX Music Source Gateway menu preview">
+  <rect width="912" height="720" fill="#0b0c0c"/>
+  <style>
+    .title { fill: #49e3e3; font: 16px Consolas, 'Cascadia Mono', monospace; font-weight: 700; }
+    .subtitle { fill: #6e6e6e; font: 16px Consolas, 'Cascadia Mono', monospace; font-weight: 700; }
+    .section { fill: #49e3e3; font: 16px Consolas, 'Cascadia Mono', monospace; font-weight: 700; }
+    .text { fill: #f1f1f1; font: 16px Consolas, 'Cascadia Mono', monospace; font-weight: 700; }
+    .line { stroke: #e8e8e8; stroke-width: 2; shape-rendering: crispEdges; }
+  </style>
+
+  <text x="32" y="32" class="title">LX Music Source Gateway</text>
+  <text x="32" y="56" class="subtitle">统一配置 / 音源状态 / 本地后端 / 1Music token</text>
+
+  <text x="14" y="97" class="section">配置状态</text>
+  <g transform="translate(16 112)">
+    <rect x="0" y="0" width="880" height="104" fill="none" class="line"/>
+    <line x1="150" y1="0" x2="150" y2="104" class="line"/>
+    <text x="16" y="26" class="text">配置文件</text>
+    <text x="164" y="26" class="text">config/local.json</text>
+    <text x="16" y="48" class="text">JS音源</text>
+    <text x="164" y="48" class="text">dist/karpov-lx-source.user.js</text>
+    <text x="16" y="70" class="text">Karpov</text>
+    <text x="164" y="70" class="text">mk_s****aFg1</text>
+    <text x="16" y="92" class="text">网关地址</text>
+    <text x="164" y="92" class="text">https://gateway.karpov.cn</text>
+  </g>
+
+  <text x="14" y="262" class="section">默认音源（LX 源映射）</text>
+  <g transform="translate(16 280)">
+    <rect x="0" y="0" width="822" height="168" fill="none" class="line"/>
+    <line x1="60" y1="0" x2="60" y2="168" class="line"/>
+    <line x1="130" y1="0" x2="130" y2="168" class="line"/>
+    <line x1="280" y1="0" x2="280" y2="168" class="line"/>
+    <line x1="370" y1="0" x2="370" y2="168" class="line"/>
+    <line x1="0" y1="42" x2="822" y2="42" class="line"/>
+    <text x="16" y="28" class="text">#</text>
+    <text x="76" y="28" class="text">ID</text>
+    <text x="146" y="28" class="text">名称</text>
+    <text x="296" y="28" class="text">状态</text>
+    <text x="386" y="28" class="text">后端顺序</text>
+    <text x="16" y="70" class="text">1</text><text x="76" y="70" class="text">tx</text><text x="146" y="70" class="text">QQ音乐</text><text x="296" y="70" class="text">启用</text><text x="386" y="70" class="text">Karpov QQ → 妖狐QQ → Meting kw → 1Music</text>
+    <text x="16" y="92" class="text">2</text><text x="76" y="92" class="text">wy</text><text x="146" y="92" class="text">网易云音乐</text><text x="296" y="92" class="text">启用</text><text x="386" y="92" class="text">Karpov WY → GD WY → 妖狐WY → Meting kw…</text>
+    <text x="16" y="114" class="text">3</text><text x="76" y="114" class="text">kw</text><text x="146" y="114" class="text">酷我音乐</text><text x="296" y="114" class="text">启用</text><text x="386" y="114" class="text">GD KW → Meting kw → 妖狐KW → 1Music</text>
+    <text x="16" y="136" class="text">4</text><text x="76" y="136" class="text">kg</text><text x="146" y="136" class="text">酷狗音乐</text><text x="296" y="136" class="text">启用</text><text x="386" y="136" class="text">Meting kg → 妖狐KG → 1Music</text>
+    <text x="16" y="158" class="text">5</text><text x="76" y="158" class="text">mg</text><text x="146" y="158" class="text">咪咕音乐</text><text x="296" y="158" class="text">启用</text><text x="386" y="158" class="text">妖狐MG → 1Music</text>
+  </g>
+
+  <text x="14" y="496" class="section">自定义后端</text>
+  <g transform="translate(16 510)">
+    <rect x="0" y="0" width="790" height="168" fill="none" class="line"/>
+    <line x1="210" y1="0" x2="210" y2="168" class="line"/>
+    <line x1="300" y1="0" x2="300" y2="168" class="line"/>
+    <line x1="0" y1="42" x2="790" y2="42" class="line"/>
+    <text x="16" y="28" class="text">后端</text>
+    <text x="226" y="28" class="text">状态</text>
+    <text x="316" y="28" class="text">说明</text>
+    <text x="16" y="70" class="text">Karpov Gateway</text><text x="226" y="70" class="text">启用</text><text x="316" y="70" class="text">QQ / 网易主后端</text>
+    <text x="16" y="92" class="text">GD Studio</text><text x="226" y="92" class="text">启用</text><text x="316" y="92" class="text">网易 / 酷我备用</text>
+    <text x="16" y="114" class="text">本地 Meting</text><text x="226" y="114" class="text">启用</text><text x="316" y="114" class="text">酷我 / 酷狗 / 跨平台匹配</text>
+    <text x="16" y="136" class="text">1Music.cc</text><text x="226" y="136" class="text">启用</text><text x="316" y="136" class="text">已有 token，启动后端会刷新</text>
+    <text x="16" y="158" class="text">妖狐音乐</text><text x="226" y="158" class="text">启用</text><text x="316" y="158" class="text">QQ / 网易 / 酷我 / 酷狗 / 咪咕等免费 API</text>
+  </g>
+
+  <text x="14" y="710" class="section">操作：[1] 配置 Karpov API  [2] 切换默认音源  [A] 配置妖狐音乐 API  [Q] 退出</text>
+</svg>
