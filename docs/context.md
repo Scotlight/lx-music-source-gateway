@@ -18,6 +18,9 @@ https://music-api.gdstudio.xyz/api.php
 - 不把用户 API Key 写进仓库文件。
 - 普通用户不应被要求安装 npm 或 Node.js。
 - `lx-source-gateway.cmd` 是普通用户主入口，负责配置 API Key、切换音源、配置妖狐音乐 API、启动本地后端并生成 LX 可导入的 JS 音源。
+- Karpov 与妖狐的配置菜单只显示固定接口地址，不让用户输入网关地址；用户只输入 key。
+- Karpov API Key 通常以 `mk_` 开头；妖狐 key 通常是短数字 key。
+- 输入 Karpov 或妖狐 key 后，菜单会先请求对应接口做可用性测试，测试通过后才保存配置并重新生成 JS 音源。
 - `config/local.json` 只是本地中间配置，不给 LX 直接使用。
 - LX 最终导入的是 `dist/karpov-lx-source.user.js`。
 

@@ -71,13 +71,15 @@ dist/karpov-lx-source.user.js
    lx-source-gateway.cmd
    ```
 
-2. 选择 **[1] 配置 Karpov API**，填写网关地址和 API Key。
+2. 选择 **[1] 配置 Karpov API**，输入 Karpov API Key。Key 通常以 `mk_` 开头。
 
-   默认网关地址：
+   菜单会显示并使用这个接口地址：
 
    ```text
    https://gateway.karpov.cn
    ```
+
+   输入 Key 后，脚本会自动请求 Karpov 搜索接口测试 Key 是否可用；测试通过后才会保存配置并生成 JS。
 
 3. 菜单会生成：
 
@@ -102,6 +104,14 @@ dist/karpov-lx-source.user.js
 ```text
 [A] 配置妖狐音乐 API
 ```
+
+菜单会显示并使用这个接口地址：
+
+```text
+https://api.yaohud.cn
+```
+
+输入妖狐 key 即可。妖狐 key 通常是短数字 key。输入后，脚本会自动请求妖狐酷我接口测试 key 是否可用；测试通过后才会保存配置并生成 JS。
 
 会写入本地配置：
 

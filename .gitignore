@@ -17,6 +17,7 @@ Crashpad/
 Default/
 GrShaderCache/
 GraphiteDawnCache/
+GPUPersistentCache/
 ShaderCache/
 component_crx_cache/
 extensions_crx_cache/

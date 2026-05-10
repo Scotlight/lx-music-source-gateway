@@ -8,6 +8,8 @@ $ConfigDir = Join-Path $Root 'config'
 $ConfigPath = Join-Path $ConfigDir 'local.json'
 $ExampleConfigPath = Join-Path $ConfigDir 'local.example.json'
 $DistPath = Join-Path $Root 'dist\karpov-lx-source.user.js'
+$DefaultKarpovBaseUrl = 'https://gateway.karpov.cn'
+$DefaultYaohudApiBaseUrl = 'https://api.yaohud.cn'
 
 $SourceDefinitions = @(
   [pscustomobject]@{ Key = 'tx'; Name = 'QQ音乐'; Default = $true; Chain = 'Karpov QQ -> 妖狐QQ -> Meting kw -> 1Music' },
@@ -116,6 +118,56 @@ function Mask-Secret {
   if (-not (Test-ConfiguredApiKey $Value)) { return '未配置' }
   if ($Value.Length -le 10) { return '已配置' }
   return "$($Value.Substring(0, 4))****$($Value.Substring($Value.Length - 4))"
+}
+
+function Get-JsonProperty {
+  param([AllowNull()][object]$Object, [string]$Name)
+  if ($null -eq $Object) { return $null }
+  $prop = $Object.PSObject.Properties[$Name]
+  if ($null -eq $prop) { return $null }
+  return $prop.Value
+}
+
+function Assert-ApiBodyOk {
+  param([AllowNull()][object]$Body, [string]$ServiceName)
+  if ($null -eq $Body) { throw "$ServiceName API 测试失败：返回为空。" }
+  $code = Get-JsonProperty $Body 'code'
+  if ($null -ne $code -and [string]$code -notin @('0', '200')) {
+    $message = Get-JsonProperty $Body 'message'
+    if ([string]::IsNullOrWhiteSpace([string]$message)) { $message = Get-JsonProperty $Body 'msg' }
+    if ([string]::IsNullOrWhiteSpace([string]$message)) { $message = "code=$code" }
+    throw "$ServiceName API 测试失败：$message"
+  }
+}
+
+function Test-KarpovApi {
+  param([string]$BaseUrl, [string]$ApiKey)
+  $url = "$($BaseUrl.TrimEnd('/'))/api/proxy/qqmusic/search/songs?q=$([uri]::EscapeDataString('周杰伦'))&page=1&page_size=1"
+  Write-Host "正在测试 Karpov API：$BaseUrl" -ForegroundColor Cyan
+  try {
+    $body = Invoke-RestMethod -Method Get -Uri $url -TimeoutSec 15 -Headers @{
+      Accept = 'application/json'
+      'X-Client-App' = 'LX Music Source Gateway Setup'
+      'X-API-Key' = $ApiKey
+    }
+    Assert-ApiBodyOk $body 'Karpov'
+    Write-Host 'Karpov API Key 测试通过。' -ForegroundColor Green
+  } catch {
+    throw "Karpov API Key 测试不通过：$($_.Exception.Message)"
+  }
+}
+
+function Test-YaohudApi {
+  param([string]$ApiBaseUrl, [string]$Key)
+  $url = "$($ApiBaseUrl.TrimEnd('/'))/api/music/kuwo?key=$([uri]::EscapeDataString($Key))&msg=$([uri]::EscapeDataString('周杰伦'))&g=1"
+  Write-Host "正在测试妖狐音乐 API：$ApiBaseUrl" -ForegroundColor Cyan
+  try {
+    $body = Invoke-RestMethod -Method Get -Uri $url -TimeoutSec 15 -Headers @{ Accept = 'application/json' }
+    Assert-ApiBodyOk $body '妖狐音乐'
+    Write-Host '妖狐 key 测试通过。' -ForegroundColor Green
+  } catch {
+    throw "妖狐 key 测试不通过：$($_.Exception.Message)"
+  }
 }
 
 function Get-StateLabel {
@@ -260,19 +312,25 @@ function Invoke-Build {
 function Configure-Karpov {
   $config = Get-Config
   Write-Host ''
-  $currentBase = if ([string]::IsNullOrWhiteSpace([string]$config.baseUrl)) { 'https://gateway.karpov.cn' } else { [string]$config.baseUrl }
-  $baseUrl = Read-Host "网关地址，直接回车保持 [$currentBase]"
-  if ([string]::IsNullOrWhiteSpace($baseUrl)) { $baseUrl = $currentBase }
+  $baseUrl = $DefaultKarpovBaseUrl
+  Write-Host "Karpov Gateway：$baseUrl" -ForegroundColor Cyan
+  Write-Host 'Karpov API Key 通常以 mk_ 开头。'
 
-  $apiKeyPrompt = if (Test-ConfiguredApiKey ([string]$config.apiKey)) { 'API Key，直接回车保持当前值' } else { 'API Key' }
+  $apiKeyPrompt = if (Test-ConfiguredApiKey ([string]$config.apiKey)) { 'Karpov API Key，直接回车保持当前值' } else { 'Karpov API Key' }
   $apiKey = Read-Host $apiKeyPrompt
   if ([string]::IsNullOrWhiteSpace($apiKey)) {
     if (-not (Test-ConfiguredApiKey ([string]$config.apiKey))) { throw 'API Key 不能为空。' }
     $apiKey = [string]$config.apiKey
   }
+  $apiKey = $apiKey.Trim()
+  if ($apiKey -notlike 'mk_*') {
+    Write-Host '这个 Key 看起来不是 mk_ 开头，仍会继续测试。' -ForegroundColor Yellow
+  }
 
-  $config.baseUrl = $baseUrl.TrimEnd('/')
-  $config.apiKey = $apiKey.Trim()
+  Test-KarpovApi $baseUrl $apiKey
+
+  $config.baseUrl = $baseUrl
+  $config.apiKey = $apiKey
   Save-Config $config
   Invoke-Build
   Write-Host 'Karpov API 已保存，JS 音源已重新生成。' -ForegroundColor Green
@@ -319,15 +377,19 @@ function Toggle-LocalBackend {
 function Configure-Yaohud {
   $config = Get-Config
   Write-Host ''
-  $currentBase = if ([string]::IsNullOrWhiteSpace([string]$config.yaohud.apiBaseUrl)) { 'https://api.yaohud.cn' } else { [string]$config.yaohud.apiBaseUrl }
-  $baseUrl = Read-Host "妖狐 API 地址，直接回车保持 [$currentBase]"
-  if ([string]::IsNullOrWhiteSpace($baseUrl)) { $baseUrl = $currentBase }
+  $baseUrl = $DefaultYaohudApiBaseUrl
+  Write-Host "妖狐音乐 API：$baseUrl" -ForegroundColor Cyan
+  Write-Host '妖狐 key 通常是短数字 key。'
 
   $keyPrompt = if (Test-ConfiguredApiKey ([string]$config.yaohud.key)) { '妖狐 key，直接回车保持当前值' } else { '妖狐 key' }
   $key = Read-Host $keyPrompt
   if ([string]::IsNullOrWhiteSpace($key)) {
     if (-not (Test-ConfiguredApiKey ([string]$config.yaohud.key))) { throw '妖狐 key 不能为空。' }
     $key = [string]$config.yaohud.key
+  }
+  $key = $key.Trim()
+  if ($key -notmatch '^\d{3,12}$') {
+    Write-Host '这个 key 看起来不像短数字 key，仍会继续测试。' -ForegroundColor Yellow
   }
 
   Write-Host ''
@@ -338,16 +400,11 @@ function Configure-Yaohud {
     Write-Host "  [$($source.Key)] $($source.Name) - $note"
   }
 
-  $kgQuality = Read-Host "酷狗默认音质，直接回车保持 [$($config.yaohud.qualities.kg)]"
-  if (-not [string]::IsNullOrWhiteSpace($kgQuality)) { $config.yaohud.qualities.kg = $kgQuality.Trim() }
-  $kwQuality = Read-Host "酷我默认音质，直接回车保持 [$($config.yaohud.qualities.kw)]"
-  if (-not [string]::IsNullOrWhiteSpace($kwQuality)) { $config.yaohud.qualities.kw = $kwQuality.Trim() }
-  $txQuality = Read-Host "QQ默认音质，直接回车保持 [$($config.yaohud.qualities.tx)]"
-  if (-not [string]::IsNullOrWhiteSpace($txQuality)) { $config.yaohud.qualities.tx = $txQuality.Trim() }
+  Test-YaohudApi $baseUrl $key
 
   $config.yaohud.enabled = $true
-  $config.yaohud.apiBaseUrl = $baseUrl.TrimEnd('/')
-  $config.yaohud.key = $key.Trim()
+  $config.yaohud.apiBaseUrl = $baseUrl
+  $config.yaohud.key = $key
   $config.yaohud.defaultQuality = [string]$config.yaohud.qualities.kg
   $config.localBackend.enabled = $true
   Save-Config $config
