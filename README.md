@@ -226,7 +226,13 @@ config/browser-profile/
 dist/*.js
 ```
 
-`config/local.json` 可能包含 Karpov API Key、妖狐 key、平台 Cookie、1Music token。`dist/*.js` 是生成产物，也可能包含本地配置内容。不要把这些文件发到论坛或提交到仓库。
+`config/local.json` 可能包含 Karpov API Key、妖狐 key、平台 Cookie、1Music token。当前不做加密，原因是 LX 自定义源和本地后端需要直接读取这些值。`dist/*.js` 是生成产物，也可能包含本地配置内容。不要把这些文件发到论坛或提交到仓库。
+
+密钥写入范围：
+
+- Karpov API Key：写入 `config/local.json`，生成 JS 时也会写入 `dist/karpov-lx-source.user.js`，因为 LX 自定义源需要直接调用 Karpov Gateway。
+- 妖狐 key、平台 Cookie、1Music token：只写入 `config/local.json`，不写入生成的 JS；LX 通过本地后端使用这些值。
+- 1Music 刷新 token 时会临时打开 Edge/Chrome 独立资料目录；刷新完成或超时后，脚本会尝试自动关闭这个浏览器窗口。
 
 ## 开源协议
 

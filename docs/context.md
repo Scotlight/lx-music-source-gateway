@@ -23,6 +23,7 @@ https://music-api.gdstudio.xyz/api.php
 - 输入 Karpov 或妖狐 key 后，菜单会先请求对应接口做可用性测试，测试通过后才保存配置并重新生成 JS 音源。
 - `config/local.json` 只是本地中间配置，不给 LX 直接使用。
 - LX 最终导入的是 `dist/karpov-lx-source.user.js`。
+- 当前密钥不加密：Karpov API Key 会进入生成 JS，妖狐 key / 平台 Cookie / 1Music token 只保存在本地 `config/local.json` 并通过本地后端读取。
 
 ## LX 自定义源侧约束
 
@@ -319,7 +320,7 @@ POST https://backend.1music.cc/download/
 }
 ```
 
-接入策略：只放在本地后端，使用 `lx-source-gateway.cmd` 的“启用/刷新 1Music”菜单从 Edge/Chrome 页面读取 `cf-turnstile-response`，写入 `config/local.json` 的 `oneMusic.turnstileToken`。自定义源 JS 不保存 token，只调用 `http://127.0.0.1:47632/1music/match-url`。
+接入策略：只放在本地后端，使用 `lx-source-gateway.cmd` 的“启用/刷新 1Music”菜单从 Edge/Chrome 页面读取 `cf-turnstile-response`，写入 `config/local.json` 的 `oneMusic.turnstileToken`。自定义源 JS 不保存 token，只调用 `http://127.0.0.1:47632/1music/match-url`。刷新脚本使用独立浏览器资料目录和 CDP，获取 token 后会发送 `Browser.close` 并回退到结束本次启动的浏览器进程。
 
 
 ## 统一 cmd 页面
