@@ -1,0 +1,34 @@
+# local secrets / generated artifacts
+config/local.json
+config/browser-profile/
+dist/*.js
+
+# node / editor
+node_modules/
+.DS_Store
+*.log
+.vscode/
+!.vscode/extensions.json
+.ace-tool/
+.playwright-mcp/
+
+# accidentally-created Chromium profiles
+Crashpad/
+Default/
+GrShaderCache/
+GraphiteDawnCache/
+ShaderCache/
+component_crx_cache/
+extensions_crx_cache/
+segmentation_platform/
+Local State
+Last Browser
+Last Version
+Variations
+VariationsSafeSeedV2
+VariationsSeedV2
+en-US-*.bdic
+first_party_sets.db*
+BrowserMetrics*.pma
+lockfile
+optimization_guide_model_store/

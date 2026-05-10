@@ -1,0 +1,49 @@
+{
+  "baseUrl": "https://gateway.karpov.cn",
+  "apiKey": "请在这里填入你的 API Key",
+  "gdstudio": {
+    "enabled": true,
+    "baseUrl": "https://music-api.gdstudio.xyz/api.php"
+  },
+  "localBackend": {
+    "enabled": false,
+    "baseUrl": "http://127.0.0.1:47632",
+    "matchFallback": false,
+    "defaultMatchPlatform": "kuwo",
+    "searchLimit": 10,
+    "cookies": {}
+  },
+  "enableProbe": true,
+  "strictMatch": true,
+  "sources": {
+    "tx": true,
+    "wy": true,
+    "kw": true,
+    "kg": false,
+    "mg": false
+  },
+  "oneMusic": {
+    "enabled": false,
+    "siteUrl": "https://1music.cc",
+    "apiBaseUrl": "https://api.1music.cc",
+    "backendBaseUrl": "https://backend.1music.cc",
+    "turnstileToken": "",
+    "requestFormat": "webm"
+  },
+  "yaohud": {
+    "enabled": false,
+    "apiBaseUrl": "https://api.yaohud.cn",
+    "key": "",
+    "kugouCookie": "",
+    "defaultQuality": "flac",
+    "qualities": {
+      "tx": "320",
+      "kw": "lossless",
+      "kg": "flac"
+    },
+    "cookies": {
+      "tx": "",
+      "kg": ""
+    }
+  }
+}

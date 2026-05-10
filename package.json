@@ -1,0 +1,16 @@
+{
+  "name": "lx-music-source-gateway",
+  "version": "0.2.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "description": "LX Music 自定义聚合音源脚本构建与验证工具",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "verify": "node scripts/verify.mjs",
+    "local": "node server/local-meting-server.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

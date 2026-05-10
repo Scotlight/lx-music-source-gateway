@@ -1,0 +1,2496 @@
+openapi: 3.0.3
+info:
+  title: 多平台音乐网关 API
+  version: 0.5.3
+  description: |
+    **多平台音乐网关 API** 是一组用于聚合 QQ 音乐 / 网易云音乐 / 酷狗音乐等多家音乐源的统一 RESTful 接口。
+    网关在内部完成账号池调度、限流配额、计费扣减、Extra Usage 超额计费、余额扣款等控制逻辑，
+    上游应用只需要通过统一的 API 接入即可。
+
+    ## 协议总览
+    - **基础路径**：所有业务接口位于 `/v1/...` 命名空间下。
+    - **认证方式**：
+      - **Cookie 会话**（前端控制台用）：登录后服务器下发 `sid` 会话 Cookie。
+      - **API Key**（程序化调用用）：在 `Authorization: Bearer <api_key>` 请求头中携带。
+    - **响应封装**：网关接口绝大多数返回 `{ code, message, data }` 包装结构（`code = 0` 表示成功），
+      详情见下方 `Response` schema 定义。
+    - **CSRF 保护**：使用 Cookie 会话时，所有非 GET/HEAD/OPTIONS 请求都需要在请求头中携带
+      `X-CSRF-Token`（值与 Cookie `csrf_token` 一致）。API Key 模式不受 CSRF 限制。
+    - **限流模型**：
+      - **QPS**：按用户套餐限制每秒请求数。
+      - **每日 / 每月配额**：免费版默认 100 次/日；超出后若开启 Extra Usage 则会按千次价从余额中扣费。
+
+    ## 错误码
+    全局错误码定义在 `ErrorCode` 字段：
+    | code | 含义 |
+    | ---- | ---- |
+    | 0 | 成功 |
+    | 400 | 请求参数错误 |
+    | 401 | 未认证 / 凭据失效 |
+    | 403 | 权限不足 |
+    | 404 | 资源不存在 |
+    | 409 | 资源冲突（重复创建、版本冲突等） |
+    | 429 | 限流（QPS 或日/月配额耗尽） |
+    | 500 | 服务器内部错误 |
+  contact:
+    name: 多平台音乐网关
+    url: https://github.com/luoye663/qqmusicapi
+servers:
+  - url: /
+    description: 当前实例
+  - url: https://api.example.com
+    description: 生产环境（占位，按部署实际域名替换）
+tags:
+  - name: 认证
+    description: 用户注册、登录、密码、二步验证 (TOTP)
+  - name: API Key
+    description: 程序化访问凭据的创建、查询、撤销
+  - name: 套餐
+    description: 套餐查询、订阅、当前套餐信息
+  - name: 订单
+    description: 订单创建、查询、退款（管理员）
+  - name: 账户余额
+    description: 钱包余额查询、充值、明细
+  - name: Extra Usage
+    description: 超额使用配置和扣费记录
+  - name: 用量
+    description: 用量统计、历史、实时数据
+  - name: 音乐
+    description: 多平台音乐统一接口（歌曲 / 搜索 / 专辑 / 歌手 / 歌单 / 直链 / 歌词）
+  - name: 网易云登录
+    description: 网易云原生账号登录（手机号 / 邮箱 / 二维码 / 验证码）
+  - name: 支付回调
+    description: 支付平台异步通知（公网可访问）
+  - name: 系统
+    description: 健康检查与系统级接口
+security:
+  - cookieAuth: []
+  - apiKeyAuth: []
+paths:
+  /healthz:
+    get:
+      tags:
+        - 系统
+      summary: 健康检查
+      description: 网关是否启动并接收请求。
+      security: []
+      responses:
+        '200':
+          description: 服务正常
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ok
+  /readyz:
+    get:
+      tags:
+        - 系统
+      summary: 就绪检查
+      description: 网关是否已经完成依赖（数据库、缓存等）初始化。
+      security: []
+      responses:
+        '200':
+          description: 服务就绪
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ready
+  /v1/auth/register:
+    post:
+      tags:
+        - 认证
+      summary: 注册新用户
+      description: 创建账户。注册成功后默认 `free` 套餐；密码强度由服务端校验。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '200':
+          description: 注册成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterResponseEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: 邮箱已被占用
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /v1/auth/login:
+    post:
+      tags:
+        - 认证
+      summary: 用户登录
+      description: 校验邮箱 / 密码，下发会话 Cookie。若开启了 TOTP 则需带上验证码。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: 登录成功，会话 Cookie 已下发
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponseEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/auth/logout:
+    post:
+      tags:
+        - 认证
+      summary: 退出登录
+      description: 销毁当前会话并清除 Cookie。
+      responses:
+        '200':
+          description: 退出成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyEnvelope'
+  /v1/auth/me:
+    get:
+      tags:
+        - 认证
+      summary: 获取当前登录用户
+      responses:
+        '200':
+          description: 当前用户信息
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/auth/password/change:
+    post:
+      tags:
+        - 认证
+      summary: 修改密码
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '200':
+          description: 修改成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/auth/password/reset/request:
+    post:
+      tags:
+        - 认证
+      summary: 申请重置密码（发送重置链接）
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                  format: email
+                  description: 注册邮箱
+      responses:
+        '200':
+          description: 已发送重置邮件
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyEnvelope'
+  /v1/auth/password/reset:
+    post:
+      tags:
+        - 认证
+      summary: 使用重置令牌设置新密码
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - token
+                - newPassword
+              properties:
+                token:
+                  type: string
+                  description: 重置令牌
+                newPassword:
+                  type: string
+                  format: password
+                  minLength: 8
+      responses:
+        '200':
+          description: 已重置
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /v1/auth/email/verify:
+    post:
+      tags:
+        - 认证
+      summary: 校验邮箱验证码
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - token
+              properties:
+                token:
+                  type: string
+                  description: 邮箱验证 token
+      responses:
+        '200':
+          description: 邮箱已验证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyEnvelope'
+  /v1/auth/totp/enable:
+    post:
+      tags:
+        - 认证
+      summary: 开启二步验证（TOTP）
+      description: 返回 OTPAuth URI / 二维码，用户使用 Google Authenticator 等扫码绑定。
+      responses:
+        '200':
+          description: 已生成 TOTP 绑定信息（需后续 Verify 才会真正生效）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TOTPEnableEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/auth/totp/verify:
+    post:
+      tags:
+        - 认证
+      summary: 校验 TOTP 验证码
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - code
+              properties:
+                code:
+                  type: string
+                  description: 6 位验证码
+      responses:
+        '200':
+          description: 校验通过
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TOTPResultEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/auth/totp/disable:
+    post:
+      tags:
+        - 认证
+      summary: 关闭二步验证
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - code
+              properties:
+                code:
+                  type: string
+      responses:
+        '200':
+          description: 已关闭
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/auth/api-keys:
+    get:
+      tags:
+        - API Key
+      summary: 列出当前用户的 API Key
+      responses:
+        '200':
+          description: API Key 列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIKeyListEnvelope'
+    post:
+      tags:
+        - API Key
+      summary: 创建 API Key
+      description: 创建后**只在本次响应中**返回完整 Key 明文，请妥善保存。新 Key 的套餐继承用户当前套餐。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAPIKeyRequest'
+      responses:
+        '200':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateAPIKeyResponseEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/auth/api-keys/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: API Key ID（不是 Key 明文）
+    get:
+      tags:
+        - API Key
+      summary: 获取单个 API Key 元信息
+      responses:
+        '200':
+          description: API Key 详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIKeyEnvelope'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags:
+        - API Key
+      summary: 更新 API Key 名称 / 备注 / 限流 / 过期时间
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAPIKeyRequest'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIKeyEnvelope'
+    delete:
+      tags:
+        - API Key
+      summary: 注销 API Key
+      description: 软删除，撤销后无法再恢复。
+      responses:
+        '200':
+          description: 注销成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyEnvelope'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/auth/api-keys/{id}/enabled:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags:
+        - API Key
+      summary: 启用 / 停用 API Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - enabled
+              properties:
+                enabled:
+                  type: boolean
+      responses:
+        '200':
+          description: 状态已更新
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyEnvelope'
+  /v1/billing/plans:
+    get:
+      tags:
+        - 套餐
+      summary: 列出所有可订阅套餐
+      security: []
+      responses:
+        '200':
+          description: 套餐列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlanListEnvelope'
+    put:
+      tags:
+        - 套餐
+      summary: 创建 / 更新套餐（管理员）
+      x-internal: true
+      responses:
+        '200':
+          description: 已写入
+  /v1/billing/plans/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      tags:
+        - 套餐
+      summary: 更新指定套餐（管理员）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Plan'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlanEnvelope'
+    delete:
+      tags:
+        - 套餐
+      summary: 删除套餐（管理员）
+      responses:
+        '200':
+          description: 已删除
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmptyEnvelope'
+  /v1/billing/me/plan:
+    get:
+      tags:
+        - 套餐
+      summary: 获取当前用户的套餐与限额
+      description: 返回用户当前生效的套餐 ID、QPS、每日/每月限额、Extra Usage 价格等。
+      responses:
+        '200':
+          description: 我的套餐
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyPlanEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/billing/orders:
+    get:
+      tags:
+        - 订单
+      summary: 列出当前用户订单
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: 订单列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderListEnvelope'
+    post:
+      tags:
+        - 订单
+      summary: 创建订单（订阅 / 充值）
+      description: |
+        - 订阅：传 `planId`，订单类型为 `subscription`，支付成功后会升级用户套餐并将其下所有 API Key 切换到该套餐。
+        - 充值：传 `topupAmountCents`，订单类型为 `topup`，支付成功后金额自动入账到用户钱包。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        '200':
+          description: 订单已创建，含支付链接
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateOrderResponseEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /v1/billing/orders/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - 订单
+      summary: 查询订单
+      responses:
+        '200':
+          description: 订单详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderEnvelope'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/billing/orders/{id}/refund:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags:
+        - 订单
+      summary: 退款（管理员）
+      description: 仅 `admin` / `super_admin` 角色可用。
+      responses:
+        '200':
+          description: 退款发起成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderEnvelope'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /v1/billing/balance:
+    get:
+      tags:
+        - 账户余额
+      summary: 查询当前用户余额
+      responses:
+        '200':
+          description: 余额
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalanceEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/billing/balance/transactions:
+    get:
+      tags:
+        - 账户余额
+      summary: 查询余额变动明细
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 500
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: 余额变动列表（按时间倒序）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalanceTxnListEnvelope'
+  /v1/billing/balance/topup:
+    post:
+      tags:
+        - 账户余额
+      summary: 发起充值（生成支付链接）
+      description: |
+        创建一个用途为 `topup` 的订单。支付成功后，金额由网关在回调中自动入账到余额。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TopupRequest'
+      responses:
+        '200':
+          description: 已生成支付订单
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateOrderResponseEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /v1/billing/balance/adjust:
+    post:
+      tags:
+        - 账户余额
+      summary: 内部 / 管理员手工调整余额
+      description: |
+        通常仅供运营 / 自动化任务使用，按 `operation` 进行 `credit` / `debit` / `set` 操作；
+        会写入一条变动明细。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BalanceAdjustRequest'
+      responses:
+        '200':
+          description: 调整成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalanceEnvelope'
+  /v1/billing/extra-usage:
+    get:
+      tags:
+        - Extra Usage
+      summary: 获取当前用户的 Extra Usage 配置
+      responses:
+        '200':
+          description: 配置
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtraUsageSettingsEnvelope'
+    put:
+      tags:
+        - Extra Usage
+      summary: 更新 Extra Usage 配置
+      description: |
+        - `enabled` 为 `true` 时，月度 / 每日配额耗尽后将按 `overagePricePer1k` 从余额中扣费。
+        - `monthlyCapCents` 设置月度超额上限（防意外大额扣费），0 表示不设上限。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateExtraUsageRequest'
+      responses:
+        '200':
+          description: 已更新
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtraUsageSettingsEnvelope'
+  /v1/billing/extra-usage/report:
+    get:
+      tags:
+        - Extra Usage
+      summary: 获取本月超额报表
+      responses:
+        '200':
+          description: 报表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtraUsageReportEnvelope'
+  /v1/billing/extra-usage/charges:
+    get:
+      tags:
+        - Extra Usage
+      summary: 列出超额扣费聚合（按月）
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 12
+            maximum: 60
+      responses:
+        '200':
+          description: 月度聚合列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OverageChargesEnvelope'
+  /v1/billing/extra-usage/events:
+    get:
+      tags:
+        - Extra Usage
+      summary: 列出超额扣费事件明细
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 500
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: 事件明细
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OverageEventsEnvelope'
+  /v1/usage/summary:
+    get:
+      tags:
+        - 用量
+      summary: 用量汇总（今日 / 本月 / 累计）
+      responses:
+        '200':
+          description: 汇总
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageSummaryEnvelope'
+  /v1/usage/history:
+    get:
+      tags:
+        - 用量
+      summary: 历史用量（按日聚合）
+      parameters:
+        - name: days
+          in: query
+          schema:
+            type: integer
+            default: 30
+            maximum: 365
+      responses:
+        '200':
+          description: 历史用量
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageHistoryEnvelope'
+  /v1/usage/realtime:
+    get:
+      tags:
+        - 用量
+      summary: 实时用量（最近 N 分钟）
+      parameters:
+        - name: minutes
+          in: query
+          schema:
+            type: integer
+            default: 60
+            maximum: 1440
+      responses:
+        '200':
+          description: 实时用量
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageRealtimeEnvelope'
+  /v1/{provider}/songs/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Provider'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: 歌曲 ID
+    get:
+      tags:
+        - 音乐
+      summary: 获取歌曲详情
+      responses:
+        '200':
+          description: 歌曲详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SongEnvelope'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /v1/{provider}/songs/{id}/url:
+    parameters:
+      - $ref: '#/components/parameters/Provider'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: quality
+        in: query
+        schema:
+          $ref: '#/components/schemas/AudioQuality'
+        description: 音质，默认 MP3_320
+    get:
+      tags:
+        - 音乐
+      summary: 获取歌曲直链（带防盗链）
+      responses:
+        '200':
+          description: 直链
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SongURLEnvelope'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /v1/{provider}/songs/{id}/lyric:
+    parameters:
+      - $ref: '#/components/parameters/Provider'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - 音乐
+      summary: 获取歌词
+      responses:
+        '200':
+          description: 歌词
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LyricEnvelope'
+  /v1/{provider}/search/songs:
+    parameters:
+      - $ref: '#/components/parameters/Provider'
+      - name: q
+        in: query
+        required: true
+        schema:
+          type: string
+        description: 搜索关键词
+      - name: page
+        in: query
+        schema:
+          type: integer
+          default: 1
+      - name: page_size
+        in: query
+        schema:
+          type: integer
+          default: 20
+          maximum: 100
+    get:
+      tags:
+        - 音乐
+      summary: 搜索歌曲
+      responses:
+        '200':
+          description: 搜索结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SongSearchEnvelope'
+  /v1/{provider}/albums/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Provider'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - 音乐
+      summary: 获取专辑
+      responses:
+        '200':
+          description: 专辑
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlbumEnvelope'
+  /v1/{provider}/artists/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Provider'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - 音乐
+      summary: 获取歌手
+      responses:
+        '200':
+          description: 歌手
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArtistEnvelope'
+  /v1/{provider}/playlists/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Provider'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags:
+        - 音乐
+      summary: 获取歌单
+      responses:
+        '200':
+          description: 歌单
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistEnvelope'
+  /v1/netease/auth/login/cellphone:
+    post:
+      tags:
+        - 网易云登录
+      summary: 手机号登录
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NeteaseCellphoneLogin'
+      responses:
+        '200':
+          $ref: '#/components/responses/RawJSON'
+  /v1/netease/auth/login/email:
+    post:
+      tags:
+        - 网易云登录
+      summary: 邮箱登录
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NeteaseEmailLogin'
+      responses:
+        '200':
+          $ref: '#/components/responses/RawJSON'
+  /v1/netease/auth/login/qr/key:
+    post:
+      tags:
+        - 网易云登录
+      summary: 获取二维码 key
+      responses:
+        '200':
+          $ref: '#/components/responses/RawJSON'
+  /v1/netease/auth/login/qr/create:
+    post:
+      tags:
+        - 网易云登录
+      summary: 创建二维码
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - key
+              properties:
+                key:
+                  type: string
+                qrimg:
+                  type: boolean
+      responses:
+        '200':
+          $ref: '#/components/responses/RawJSON'
+  /v1/netease/auth/login/qr/check:
+    post:
+      tags:
+        - 网易云登录
+      summary: 检测二维码扫码状态
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - key
+              properties:
+                key:
+                  type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/RawJSON'
+  /v1/netease/auth/login/refresh:
+    post:
+      tags:
+        - 网易云登录
+      summary: 刷新登录
+      responses:
+        '200':
+          $ref: '#/components/responses/RawJSON'
+  /v1/netease/auth/login/status:
+    get:
+      tags:
+        - 网易云登录
+      summary: 检查登录状态
+      responses:
+        '200':
+          $ref: '#/components/responses/RawJSON'
+  /v1/netease/auth/register/anonymous:
+    post:
+      tags:
+        - 网易云登录
+      summary: 匿名注册
+      responses:
+        '200':
+          $ref: '#/components/responses/RawJSON'
+  /v1/netease/auth/captcha/sent:
+    post:
+      tags:
+        - 网易云登录
+      summary: 发送短信验证码
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - phone
+              properties:
+                phone:
+                  type: string
+                countryCode:
+                  type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/RawJSON'
+  /v1/netease/auth/captcha/verify:
+    post:
+      tags:
+        - 网易云登录
+      summary: 校验短信验证码
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - phone
+                - captcha
+              properties:
+                phone:
+                  type: string
+                captcha:
+                  type: string
+                countryCode:
+                  type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/RawJSON'
+  /v1/billing/callback/yipay:
+    get:
+      tags:
+        - 支付回调
+      summary: 易支付异步通知（GET）
+      security: []
+      x-callback: true
+      responses:
+        '200':
+          description: 已接收
+    post:
+      tags:
+        - 支付回调
+      summary: 易支付异步通知（POST）
+      security: []
+      x-callback: true
+      responses:
+        '200':
+          description: 已接收
+  /v1/billing/callback/hupijiao:
+    post:
+      tags:
+        - 支付回调
+      summary: 虎皮椒异步通知
+      security: []
+      x-callback: true
+      responses:
+        '200':
+          description: 已接收
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sid
+      description: 通过 `/v1/auth/login` 颁发的会话 Cookie，浏览器自动携带；同源调用无需手动配置。
+    apiKeyAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API Key
+      description: '在 `Authorization: Bearer <api_key>` 中携带。'
+  parameters:
+    Provider:
+      name: provider
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Provider'
+      description: 上游音乐源标识。
+  responses:
+    BadRequest:
+      description: 请求参数错误
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Unauthorized:
+      description: 未认证
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Forbidden:
+      description: 权限不足
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    NotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    RateLimited:
+      description: 触发限流（QPS / 每日 / 每月配额耗尽）
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    RawJSON:
+      description: 直接透传上游返回，未做封装
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: true
+  schemas:
+    Response:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: integer
+          example: 0
+          description: 0=成功；非 0 见错误码表
+        message:
+          type: string
+          example: ok
+        data:
+          description: 实际业务数据，类型见各接口
+    ErrorEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          example:
+            code: 400
+            message: invalid body
+            data: null
+    EmptyEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              type: object
+              additionalProperties: true
+    Provider:
+      type: string
+      enum:
+        - qqmusic
+        - netease
+        - kugou
+      description: 音乐源
+    AudioQuality:
+      type: string
+      enum:
+        - MP3_128
+        - MP3_320
+        - FLAC
+        - ATMOS
+        - ATMOS2
+      description: 音质标签
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+        status:
+          type: string
+          enum:
+            - active
+            - locked
+            - disabled
+        role:
+          type: string
+          enum:
+            - user
+            - admin
+            - super_admin
+        planId:
+          type: string
+          example: free
+        totpEnabled:
+          type: boolean
+        emailVerified:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+    UserEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/User'
+    RegisterRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+    RegisterResponseEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                user:
+                  $ref: '#/components/schemas/User'
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+        totpCode:
+          type: string
+          description: 当用户开启 TOTP 时必填
+    LoginResponseEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                user:
+                  $ref: '#/components/schemas/User'
+                csrfToken:
+                  type: string
+    ChangePasswordRequest:
+      type: object
+      required:
+        - oldPassword
+        - newPassword
+      properties:
+        oldPassword:
+          type: string
+        newPassword:
+          type: string
+          minLength: 8
+    TOTPEnableEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                otpauthUri:
+                  type: string
+                qrPng:
+                  type: string
+                  description: Data URI 形式的二维码 PNG（可选）
+    TOTPResultEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                verified:
+                  type: boolean
+    APIKey:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        prefix:
+          type: string
+          description: 仅返回前缀，明文 Key 只在创建时给一次
+        planId:
+          type: string
+        status:
+          type: string
+          enum:
+            - active
+            - disabled
+        scopes:
+          type: array
+          items:
+            type: string
+        ipAllowlist:
+          type: array
+          items:
+            type: string
+        rateLimitRpm:
+          type: integer
+          nullable: true
+        rateLimitDaily:
+          type: integer
+          format: int64
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastUsedAt:
+          type: string
+          format: date-time
+          nullable: true
+    APIKeyEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/APIKey'
+    APIKeyListEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/APIKey'
+                total:
+                  type: integer
+    CreateAPIKeyRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          maxLength: 64
+        description:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        ipAllowlist:
+          type: array
+          items:
+            type: string
+        rateLimitRpm:
+          type: integer
+        rateLimitDaily:
+          type: integer
+          format: int64
+        expiresAt:
+          type: string
+          format: date-time
+    CreateAPIKeyResponseEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                key:
+                  type: string
+                  description: 完整明文 Key（只此一次）
+                record:
+                  $ref: '#/components/schemas/APIKey'
+    UpdateAPIKeyRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        ipAllowlist:
+          type: array
+          items:
+            type: string
+        rateLimitRpm:
+          type: integer
+        rateLimitDaily:
+          type: integer
+          format: int64
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+    Plan:
+      type: object
+      properties:
+        id:
+          type: string
+          example: enterprise
+        code:
+          type: string
+        name:
+          type: string
+          example: 企业版
+        priceCents:
+          type: integer
+          format: int64
+        currency:
+          type: string
+          default: CNY
+        period:
+          type: string
+          enum:
+            - monthly
+            - yearly
+            - none
+        qps:
+          type: integer
+        dailyLimit:
+          type: integer
+          format: int64
+        monthlyLimit:
+          type: integer
+          format: int64
+        softLimitPct:
+          type: number
+          format: float
+          description: 0-1 之间的预警阈值
+        payAsYouGo:
+          type: boolean
+        overagePricePer_1k:
+          type: number
+          format: float
+          description: 超额单价：单位元/千次
+    PlanEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Plan'
+    PlanListEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                plans:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Plan'
+    MyPlan:
+      type: object
+      properties:
+        userId:
+          type: string
+        planId:
+          type: string
+        planName:
+          type: string
+        priceCents:
+          type: integer
+          format: int64
+        currency:
+          type: string
+        period:
+          type: string
+        qps:
+          type: integer
+        dailyLimit:
+          type: integer
+          format: int64
+        monthlyLimit:
+          type: integer
+          format: int64
+        softLimitPct:
+          type: number
+          format: float
+        payAsYouGo:
+          type: boolean
+        overagePricePer_1k:
+          type: number
+          format: float
+    MyPlanEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MyPlan'
+    Order:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        planId:
+          type: string
+          nullable: true
+        purpose:
+          type: string
+          enum:
+            - subscription
+            - topup
+        amount:
+          type: string
+          description: 金额字符串，单位元
+        currency:
+          type: string
+        status:
+          type: string
+          enum:
+            - pending
+            - paid
+            - refunded
+            - failed
+            - canceled
+        paymentProvider:
+          type: string
+        payUrl:
+          type: string
+        paidAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    OrderEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Order'
+    OrderListEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Order'
+                total:
+                  type: integer
+    CreateOrderRequest:
+      type: object
+      properties:
+        planId:
+          type: string
+          description: 套餐订阅时使用
+        topupAmountCents:
+          type: integer
+          format: int64
+          description: 充值时使用，单位分
+        paymentProvider:
+          type: string
+          enum:
+            - yipay
+            - hupijiao
+          default: yipay
+        successUrl:
+          type: string
+          format: uri
+          description: 用户支付完成跳转地址
+    CreateOrderResponseEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                orderId:
+                  type: string
+                payUrl:
+                  type: string
+                  format: uri
+                amount:
+                  type: string
+                currency:
+                  type: string
+                status:
+                  type: string
+                planName:
+                  type: string
+                  nullable: true
+    Balance:
+      type: object
+      properties:
+        userId:
+          type: string
+        balanceCents:
+          type: integer
+          format: int64
+        currency:
+          type: string
+          default: CNY
+        version:
+          type: integer
+          format: int64
+          description: 乐观锁版本号
+        updatedAt:
+          type: string
+          format: date-time
+    BalanceEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Balance'
+    BalanceTransaction:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        amountCents:
+          type: integer
+          format: int64
+          description: 有符号；正为入账（充值/调整加），负为扣减（消费/调整减）
+        balanceAfterCents:
+          type: integer
+          format: int64
+        type:
+          type: string
+          enum:
+            - topup
+            - overage
+            - refund
+            - adjust_credit
+            - adjust_debit
+            - adjust_set
+        description:
+          type: string
+        reference:
+          type: string
+          description: 关联订单/事件等外部 ID
+        createdAt:
+          type: string
+          format: date-time
+    BalanceTxnListEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/BalanceTransaction'
+                total:
+                  type: integer
+                limit:
+                  type: integer
+                offset:
+                  type: integer
+    TopupRequest:
+      type: object
+      required:
+        - amountCents
+      properties:
+        amountCents:
+          type: integer
+          format: int64
+          minimum: 100
+        paymentProvider:
+          type: string
+          enum:
+            - yipay
+            - hupijiao
+          default: yipay
+        successUrl:
+          type: string
+          format: uri
+    BalanceAdjustRequest:
+      type: object
+      required:
+        - operation
+        - amountCents
+      properties:
+        operation:
+          type: string
+          enum:
+            - credit
+            - debit
+            - set
+          description: credit=加，debit=减，set=覆盖
+        amountCents:
+          type: integer
+          format: int64
+        description:
+          type: string
+        reference:
+          type: string
+    ExtraUsageSettings:
+      type: object
+      properties:
+        userId:
+          type: string
+        enabled:
+          type: boolean
+        monthlyCapCents:
+          type: integer
+          format: int64
+          description: 0=不设上限
+        currency:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+    ExtraUsageSettingsEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/ExtraUsageSettings'
+    UpdateExtraUsageRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        monthlyCapCents:
+          type: integer
+          format: int64
+    ExtraUsageReport:
+      type: object
+      properties:
+        month:
+          type: string
+          example: 2026-05
+        totalRequests:
+          type: integer
+          format: int64
+        chargedRequests:
+          type: integer
+          format: int64
+        chargedAmountCents:
+          type: integer
+          format: int64
+        capCents:
+          type: integer
+          format: int64
+        capRemainingCents:
+          type: integer
+          format: int64
+    ExtraUsageReportEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/ExtraUsageReport'
+    OverageCharge:
+      type: object
+      properties:
+        userId:
+          type: string
+        month:
+          type: string
+        requests:
+          type: integer
+          format: int64
+        amountCents:
+          type: integer
+          format: int64
+    OverageChargesEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/OverageCharge'
+    OverageEvent:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        ts:
+          type: string
+          format: date-time
+        provider:
+          type: string
+        endpoint:
+          type: string
+        amountCents:
+          type: integer
+          format: int64
+        units:
+          type: integer
+          format: int64
+          description: 本次扣费单位数（默认 1）
+        balanceAfterCents:
+          type: integer
+          format: int64
+    OverageEventsEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/OverageEvent'
+                total:
+                  type: integer
+                limit:
+                  type: integer
+                offset:
+                  type: integer
+    UsageSummary:
+      type: object
+      properties:
+        today:
+          type: integer
+          format: int64
+        thisMonth:
+          type: integer
+          format: int64
+        total:
+          type: integer
+          format: int64
+        dailyLimit:
+          type: integer
+          format: int64
+        monthlyLimit:
+          type: integer
+          format: int64
+        dailyRemaining:
+          type: integer
+          format: int64
+        monthlyRemaining:
+          type: integer
+          format: int64
+    UsageSummaryEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/UsageSummary'
+    UsageHistoryItem:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        count:
+          type: integer
+          format: int64
+    UsageHistoryEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/UsageHistoryItem'
+    UsageRealtimeEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      ts:
+                        type: string
+                        format: date-time
+                      count:
+                        type: integer
+                        format: int64
+    Song:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        subtitle:
+          type: string
+        duration:
+          type: integer
+          format: int64
+          description: 毫秒
+        artists:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+        album:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            picUrl:
+              type: string
+        publishTime:
+          type: string
+          format: date-time
+          nullable: true
+        provider:
+          $ref: '#/components/schemas/Provider'
+    SongEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Song'
+    SongURL:
+      type: object
+      properties:
+        id:
+          type: string
+        url:
+          type: string
+          format: uri
+        format:
+          type: string
+          example: mp3
+        bitrate:
+          type: integer
+        size:
+          type: integer
+          format: int64
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+    SongURLEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/SongURL'
+    Lyric:
+      type: object
+      properties:
+        lrc:
+          type: string
+          description: LRC 格式歌词
+        trans:
+          type: string
+          description: 翻译歌词
+    LyricEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Lyric'
+    SongSearchEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Song'
+                total:
+                  type: integer
+                page:
+                  type: integer
+                pageSize:
+                  type: integer
+                hasMore:
+                  type: boolean
+    Album:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        picUrl:
+          type: string
+        publishTime:
+          type: string
+          format: date-time
+          nullable: true
+        artists:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+        songs:
+          type: array
+          items:
+            $ref: '#/components/schemas/Song'
+    AlbumEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Album'
+    Artist:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        picUrl:
+          type: string
+        description:
+          type: string
+        songs:
+          type: array
+          items:
+            $ref: '#/components/schemas/Song'
+    ArtistEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Artist'
+    Playlist:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        creator:
+          type: string
+        picUrl:
+          type: string
+        songs:
+          type: array
+          items:
+            $ref: '#/components/schemas/Song'
+    PlaylistEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Playlist'
+    NeteaseCellphoneLogin:
+      type: object
+      required:
+        - phone
+      properties:
+        phone:
+          type: string
+        password:
+          type: string
+        md5Password:
+          type: string
+        captcha:
+          type: string
+        countryCode:
+          type: string
+    NeteaseEmailLogin:
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+        md5Password:
+          type: string
+    AdminUserEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/User'
+    AdminUserListEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/User'
+                total:
+                  type: integer
+                limit:
+                  type: integer
+                offset:
+                  type: integer
+    AdminUserDetailEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                user:
+                  $ref: '#/components/schemas/User'
+                balance:
+                  $ref: '#/components/schemas/Balance'
+                apiKeys:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/APIKey'
+                planCounts:
+                  type: object
+                  additionalProperties:
+                    type: integer
+                  description: key=planId，value=该套餐的 API Key 数量
+    AdminAPIKeyListEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/APIKey'
+                total:
+                  type: integer
+    AdminSetPlanEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                planId:
+                  type: string
+                updatedKeys:
+                  type: integer
+                totalKeys:
+                  type: integer
+    PoolCredential:
+      type: object
+      properties:
+        id:
+          type: string
+        provider:
+          $ref: '#/components/schemas/Provider'
+        name:
+          type: string
+        status:
+          type: string
+          enum:
+            - active
+            - paused
+            - banned
+        priority:
+          type: integer
+        cookieFingerprint:
+          type: string
+          description: cookie 摘要，便于识别
+        lastUsedAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastRefreshAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    PoolCredentialEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/PoolCredential'
+    PoolCredentialListEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/PoolCredential'
+                total:
+                  type: integer
+    CreateCredentialRequest:
+      type: object
+      required:
+        - provider
+        - cookie
+      properties:
+        provider:
+          $ref: '#/components/schemas/Provider'
+        name:
+          type: string
+        cookie:
+          type: string
+          description: Cookie 原文（服务端会加密存储）
+        priority:
+          type: integer
+    PoolCredentialTestEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                ok:
+                  type: boolean
+                message:
+                  type: string
+                latencyMs:
+                  type: integer
+    PoolHealth:
+      type: object
+      properties:
+        provider:
+          $ref: '#/components/schemas/Provider'
+        total:
+          type: integer
+        active:
+          type: integer
+        paused:
+          type: integer
+        banned:
+          type: integer
+        successRate:
+          type: number
+          format: float
+    PoolHealthEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/PoolHealth'
+    PaymentConfig:
+      type: object
+      properties:
+        yipay:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            pid:
+              type: string
+            key:
+              type: string
+            apiUrl:
+              type: string
+        hupijiao:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            appId:
+              type: string
+            appSecret:
+              type: string
+        defaultProvider:
+          type: string
+          enum:
+            - yipay
+            - hupijiao
+        baseUrl:
+          type: string
+          description: 回调地址前缀
+    PaymentConfigEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/PaymentConfig'
+    QRStartResponseEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                session_id:
+                  type: string
+                image:
+                  type: string
+                  description: data:image/png;base64,...
+                expires_in_sec:
+                  type: integer
+                platform:
+                  type: string
+    QRPollResponseEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/Response'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                event:
+                  type: string
+                  enum:
+                    - pending
+                    - scanned
+                    - confirmed
+                    - expired
+                    - error
+                credential:
+                  type: object
+                  additionalProperties: true
+                error:
+                  type: string
