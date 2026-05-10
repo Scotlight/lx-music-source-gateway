@@ -369,8 +369,8 @@ function Refresh-OneMusic {
 }
 
 function Start-BackendWindow {
-  $cmd = Join-Path $Root 'scripts\cmd\start-local-backend.cmd'
-  Start-Process -FilePath $env:ComSpec -ArgumentList @('/k', "`"$cmd`"") | Out-Null
+  $script = Join-Path $Root 'scripts\start-local-backend.ps1'
+  Start-Process -FilePath 'powershell' -ArgumentList @('-NoExit', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$script`"") | Out-Null
   Write-Host '已打开本地后端窗口。1Music 启用时会先自动刷新 token。' -ForegroundColor Green
   Pause-Menu
 }

@@ -26,7 +26,7 @@ $config.oneMusic | Add-Member -Force -NotePropertyName requestFormat -NoteProper
 if (-not [string]::IsNullOrWhiteSpace($Token)) {
   $config.oneMusic | Add-Member -Force -NotePropertyName turnstileToken -NotePropertyValue $Token.Trim()
 } elseif ($Enabled -eq 'true' -and [string]::IsNullOrWhiteSpace([string]$config.oneMusic.turnstileToken)) {
-  throw 'ONE_MUSIC_TOKEN is empty. Run scripts\cmd\refresh-1music-token.cmd or paste a token into this command.'
+  throw 'ONE_MUSIC_TOKEN is empty. Run lx-source-gateway.cmd and choose 启用/刷新 1Music, or paste a token into this command.'
 }
 
 $json = $config | ConvertTo-Json -Depth 10

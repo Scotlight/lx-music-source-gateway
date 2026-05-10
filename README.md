@@ -195,12 +195,6 @@ config/browser-profile/
 lx-source-gateway.cmd
 ```
 
-内部 `.cmd` 统一放在：
-
-```text
-scripts/cmd/
-```
-
 常用文件：
 
 | 路径 | 说明 |
@@ -209,7 +203,6 @@ scripts/cmd/
 | `config/local.example.json` | 配置示例，不含真实 key |
 | `config/local.json` | 本地配置，包含 key，不提交 |
 | `dist/karpov-lx-source.user.js` | 生成后的 LX 自定义源，不提交 |
-| `scripts/cmd/` | 内部命令入口 |
 | `server/local-meting-server.mjs` | 可选本地后端 |
 | `src/karpov-lx-source.user.template.js` | LX 自定义源模板 |
 
@@ -231,10 +224,10 @@ dist/*.js
 
 ## 开发者命令
 
-基础生成：
+PowerShell 版构建：
 
-```bat
-scripts\cmd\build-source.cmd
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1
 ```
 
 Node 版构建：

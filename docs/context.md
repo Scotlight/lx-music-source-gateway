@@ -227,7 +227,7 @@ durationSeconds: 86
 
 ```text
 server/local-meting-server.mjs
-scripts/cmd/start-local-backend.cmd
+scripts/start-local-backend.ps1
 ```
 
 代码来源：`https://github.com/ELDment/Meting-Agent`，provider 文件复制到 `vendor/meting/`，并保留 MIT License。
@@ -260,7 +260,7 @@ GET /search?platform=kuwo&keyword=周杰伦%20晴天&page=1&limit=10
 }
 ```
 
-`scripts/cmd/enable-local-backend.cmd` 会把 `enabled` 和 `matchFallback` 打开并重新生成 JS 音源；`scripts/cmd/disable-local-backend.cmd` 会关闭。普通用户优先使用根目录的 `lx-source-gateway.cmd`。
+`lx-source-gateway.cmd` 的“切换本地后端”会把 `enabled` 和 `matchFallback` 打开或关闭，并重新生成 JS 音源。
 
 当前策略：
 
@@ -316,7 +316,7 @@ POST https://backend.1music.cc/download/
 }
 ```
 
-接入策略：只放在本地后端，使用 `lx-source-gateway.cmd` 的“启用/刷新 1Music”菜单或 `scripts/cmd/refresh-1music-token.cmd` 从 Edge/Chrome 页面读取 `cf-turnstile-response`，写入 `config/local.json` 的 `oneMusic.turnstileToken`。自定义源 JS 不保存 token，只调用 `http://127.0.0.1:47632/1music/match-url`。
+接入策略：只放在本地后端，使用 `lx-source-gateway.cmd` 的“启用/刷新 1Music”菜单从 Edge/Chrome 页面读取 `cf-turnstile-response`，写入 `config/local.json` 的 `oneMusic.turnstileToken`。自定义源 JS 不保存 token，只调用 `http://127.0.0.1:47632/1music/match-url`。
 
 
 ## 统一 cmd 页面
@@ -329,9 +329,9 @@ lx-source-gateway.cmd
 
 它调用 `scripts/gateway-menu.ps1`，展示默认音源 `tx` / `wy` / `kw` / `kg` / `mg` 与自定义后端 Karpov、GD Studio、本地 Meting、1Music.cc、妖狐音乐的状态。
 
-根目录只保留 `lx-source-gateway.cmd` 作为普通用户入口；其他 `.cmd` 入口统一收拢到 `scripts/cmd/` 作为内部或高级入口。菜单里的“启动本地后端”调用 `scripts/cmd/start-local-backend.cmd`，后者再调用 `scripts/start-local-backend.ps1`。当 `oneMusic.enabled=true` 时，启动后端前会先运行 `scripts/refresh-1music-token.ps1`，自动打开 Edge/Chrome 获取 `cf-turnstile-response` 并重新生成 JS。
+根目录只保留 `lx-source-gateway.cmd` 作为普通用户入口；不再保留内部 `.cmd` 副本。菜单里的“启动本地后端”会直接打开 PowerShell 窗口并执行 `scripts/start-local-backend.ps1`。当 `oneMusic.enabled=true` 时，启动后端前会先运行 `scripts/refresh-1music-token.ps1`，自动打开 Edge/Chrome 获取 `cf-turnstile-response` 并重新生成 JS。
 
-后续维护优先修改 `scripts/cmd/` 下的实现，不再在根目录暴露一组转发 `.cmd`。
+后续维护优先修改对应 `.ps1`、`.mjs` 或菜单实现，不再维护一组转发 `.cmd`。
 
 ## 妖狐音乐 API
 
