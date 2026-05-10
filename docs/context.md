@@ -4,9 +4,9 @@
 
 把 Karpov Gateway 与 GD Studio 的音乐接口封装成 LX Music Desktop 可导入的自定义源脚本。
 
-## 出处要求
+## 来源标识
 
-GD Studio 接口页面要求调用方注明出处。当前仓库在 `README.md` 和生成后的 LX 自定义源元信息中保留：
+当前仓库在 `README.md` 和生成后的 LX 自定义源元信息中保留：
 
 ```text
 GD Studio Music API

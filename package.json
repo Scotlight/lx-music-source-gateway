@@ -2,7 +2,7 @@
   "name": "lx-music-source-gateway",
   "version": "0.2.0",
   "private": true,
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "module",
   "description": "LX Music 自定义聚合音源脚本构建与验证工具",
   "scripts": {
